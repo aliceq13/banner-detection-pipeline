@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Models & weights (이 프로젝트에서 가장 중요)
+*.pt
+*.onnx
+*.engine
+
+# HuggingFace cache (82GB)
+.hf_cache/
+*.safetensors
+
+# Datasets (심볼릭 링크 + 대용량)
+data/
+/illegal_banner/
+
+# Training artifacts (선택적 포함 전략)
+runs/
+results/yolo_runs/*/weights/
+results/models/
+results/log_*.txt
+results/demo_full/
+results/*.pid
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Env / secrets
+.env
+*.local.*

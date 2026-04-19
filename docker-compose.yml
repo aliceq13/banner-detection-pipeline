@@ -1,0 +1,72 @@
+# ============================================================
+# docker-compose.yml - 현수막 탐지 프로젝트 컨테이너 구성
+# ============================================================
+# 사용법:
+#   실행:     docker compose up -d
+#   중지:     docker compose down
+#   로그 확인: docker compose logs -f banner-project
+#   접속:     docker compose exec banner-project bash
+# ============================================================
+
+version: '3.8'
+
+services:
+  banner-project:
+    # 이미지 이름 (로컬 빌드)
+    image: banner-detection:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # 컨테이너 이름 (docker ps에서 보이는 이름)
+    container_name: banner_project
+
+    # 컨테이너가 종료되면 자동으로 재시작
+    # SSH 연결이 끊겨도 백그라운드에서 계속 실행됨
+    restart: unless-stopped
+
+    # GPU 설정 - NVIDIA GPU 전체 사용
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # 환경 변수
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+      # HuggingFace 토큰 (rate limit 완화용 — Qwen3.5-9B 는 게이트 없음이지만
+      # 토큰을 걸면 다운로드 속도가 눈에 띄게 개선됨)
+      # - HF_TOKEN=your_token_here
+
+    # 볼륨 마운트 (호스트 ↔ 컨테이너 경로 연결)
+    volumes:
+      # 프로젝트 코드 (실시간 수정 반영)
+      - /data/deeplearning_practice:/workspace/project
+      # 현수막 데이터 (읽기 전용)
+      - /data/illegal_banner:/workspace/illegal_banner:ro
+      # HuggingFace 모델 캐시 (재다운로드 방지)
+      - /data/deeplearning_practice/.hf_cache:/workspace/hf_cache
+      # YOLO 학습 결과 저장
+      - /data/deeplearning_practice/results:/workspace/results
+
+    # 작업 디렉토리
+    working_dir: /workspace/project
+
+    # 컨테이너 내 기본 커맨드
+    # - tty: true와 함께 사용하면 bash 대화형 세션 유지
+    command: /bin/bash
+
+    # 대화형 터미널 유지 (docker exec로 접속 가능하게)
+    tty: true
+    stdin_open: true
+
+    # 공유 메모리 크기 증가 (PyTorch DataLoader 멀티프로세싱 필요)
+    shm_size: '16gb'
+
+# ── 볼륨 정의 ──────────────────────────────────────────────
+# (named volume 대신 bind mount 사용 중이므로 별도 정의 불필요)
