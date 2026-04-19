@@ -43,16 +43,18 @@ services:
       # 토큰을 걸면 다운로드 속도가 눈에 띄게 개선됨)
       # - HF_TOKEN=your_token_here
 
-    # 볼륨 마운트 (호스트 ↔ 컨테이너 경로 연결)
+    # 볼륨 마운트 (compose 파일 위치 기준 상대경로)
     volumes:
       # 프로젝트 코드 (실시간 수정 반영)
-      - /data/deeplearning_practice:/workspace/project
-      # 현수막 데이터 (읽기 전용)
-      - /data/illegal_banner:/workspace/illegal_banner:ro
+      - .:/workspace/project
       # HuggingFace 모델 캐시 (재다운로드 방지)
-      - /data/deeplearning_practice/.hf_cache:/workspace/hf_cache
+      - ./.hf_cache:/workspace/hf_cache
       # YOLO 학습 결과 저장
-      - /data/deeplearning_practice/results:/workspace/results
+      - ./results:/workspace/results
+      # 원 데이터셋이 있는 경우에만 아래 주석을 해제하고 경로를 맞추세요.
+      # 05_demo.py의 GT 평가 및 01_prepare_data.py 의 데이터 병합 시 필수.
+      # 04_pipeline.py 단일 이미지 추론만 쓸 거라면 필요 없습니다.
+      # - /path/to/illegal_banner:/workspace/illegal_banner:ro
 
     # 작업 디렉토리
     working_dir: /workspace/project

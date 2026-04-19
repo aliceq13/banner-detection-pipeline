@@ -8,23 +8,36 @@
 
 ### 필수 조건
 - **NVIDIA GPU + Docker + nvidia-container-toolkit** — `docker-compose.yml`이 `deploy.resources.reservations.devices`에 `nvidia` 요청함
-- 호스트 경로:
-  - `/data/deeplearning_practice` — 프로젝트 코드
-  - `/data/illegal_banner` — 원천 데이터 (컨테이너 `/workspace/illegal_banner:ro`에 마운트됨)
-- GPU 메모리 **최소 24GB** — Qwen3.5-9B BF16 로드 기준
+- GPU 메모리 **최소 24GB** — Qwen3.5-9B BF16 로드 기준 (A5000 / A6000 / RTX 3090 / RTX 4090 등)
+
+### 경로 모델
+[`docker-compose.yml`](docker-compose.yml)의 볼륨은 **compose 파일 위치 기준 상대경로**입니다. 즉 저장소를 clone한 위치(`pwd`)가 그대로 컨테이너의 `/workspace/project`에 마운트됩니다. `config.py` 는 [`config.py:18-31`](config.py#L18-L31)에서 `/workspace/project` 존재 여부로 Docker/호스트 실행을 자동 구분합니다.
+
+| 호스트 경로 | 컨테이너 경로 | 용도 | 필수 여부 |
+|---|---|---|---|
+| 저장소 루트 (`.`) | `/workspace/project` | 코드 | **필수** |
+| `./.hf_cache/` | `/workspace/hf_cache` | Qwen·HF 모델 캐시 | **필수** (초기 공백이어도 무방) |
+| `./results/` | `/workspace/results` | 학습 결과·모델·데모 산출물 | **필수** |
+| 원천 `illegal_banner/` | `/workspace/illegal_banner` | GT 레이블·이미지 | **선택** (데이터 준비·`05_demo.py` 에만) |
+
+원천 데이터셋을 쓰려면 `docker-compose.yml` 볼륨 목록 하단의 주석을 해제하고 실제 경로로 바꾸세요:
+```yaml
+# - /path/to/illegal_banner:/workspace/illegal_banner:ro
+```
 
 ### 컨테이너 기동
 ```bash
-cd /data/deeplearning_practice
-docker compose up -d            # 이미지 빌드 + 컨테이너 기동 (bash 대기 상태)
-docker compose exec banner-project bash    # 대화형 접속 (선택)
+git clone https://github.com/aliceq13/banner-detection-pipeline.git
+cd banner-detection-pipeline
+docker compose up -d                           # 이미지 빌드 + 컨테이너 기동 (bash 대기 상태)
+docker compose exec banner-project bash        # 대화형 접속 (선택)
 ```
 
-`docker-compose.yml:49-55`에서 **bind-mount**로 코드·데이터·결과·HF 캐시가 호스트와 실시간 공유되므로, 컨테이너 재기동 없이 호스트에서 코드를 수정해 바로 반영됩니다.
+bind-mount 구조라 컨테이너 재기동 없이 호스트에서 코드를 수정해 바로 반영됩니다.
 
-### 학습된 모델 다운로드 (선택 — 학습 건너뛰기)
+### 학습된 모델 다운로드 (학습 건너뛰기)
 
-처음부터 학습하지 않고 바로 평가·데모를 돌리려면 학습된 YOLO 가중치를 내려받아 `results/models/yolo26_banner_best.pt` 위치에 두세요.
+처음부터 학습하지 않고 바로 추론·평가를 돌리려면 학습된 YOLO 가중치를 내려받아 `results/models/yolo26_banner_best.pt` 위치에 두세요 ([`config.py:68`](config.py#L68)의 `YOLO_BEST_MODEL` 기본 경로).
 
 ```bash
 mkdir -p results/models
@@ -32,13 +45,12 @@ curl -L -o results/models/yolo26_banner_best.pt \
     https://github.com/aliceq13/banner-detection-pipeline/releases/download/v1.0/binary2-best.pt
 ```
 
-Ablation 비교용 no_coco 가중치도 필요하면:
+Ablation 비교용 no_coco 가중치:
 ```bash
+mkdir -p results/yolo_runs/banner_no_coco/weights
 curl -L -o results/yolo_runs/banner_no_coco/weights/best.pt \
     https://github.com/aliceq13/banner-detection-pipeline/releases/download/v1.0/no_coco-best.pt
 ```
-
-> `aliceq13/banner-detection-pipeline`는 본 저장소의 실제 경로로 바꿔주세요. 가중치가 있으면 §3(학습)을 건너뛰고 §4~§6으로 바로 진행할 수 있습니다.
 
 ---
 
@@ -48,8 +60,10 @@ curl -L -o results/yolo_runs/banner_no_coco/weights/best.pt \
 
 인자 없음. `main()`이 순서대로 수행 (`01_prepare_data.py:540-578`):
 
+> **⚠ 원천 데이터셋 필수.** 이 단계는 `/workspace/illegal_banner` 마운트(= 호스트의 원천 `illegal_banner/`)가 있어야 합니다. 데이터셋이 없다면 [§5 단일 이미지 파이프라인](#5-단일-이미지-파이프라인-04_pipelinepy)부터 바로 이용하세요.
+
 1. `prepare_coco_negatives()` — COCO 2017 val + annotations zip 다운로드, `COCO_NEG_MAX_SAMPLES=2000` 장을 `data/coco_negative/`에 복사
-2. `prepare_banner_positives()` — `/data/illegal_banner/data/{images,labels}/{train,val,test}` 존재 여부 확인
+2. `prepare_banner_positives()` — `DATA_ROOT/data/{images,labels}/{train,val,test}` 존재 여부 확인 ([`config.py:29`](config.py#L29)의 `DATA_ROOT`)
 3. `create_merged_dataset()` — 현수막 positives + COCO negatives 를 `data/merged/`에 symlink + 빈 레이블 생성
 4. `prepare_vlm_data()` — `temp_illegal_banner` COCO JSON 파싱해 `data/vlm_classification/{train,val}/{정당,민간,공공}/` 디렉토리로 이미지 분류 복사
 5. `create_dataset_yaml()` — `data/dataset.yaml` (2-class: banner, text) 생성
@@ -169,16 +183,26 @@ mAP50, mAP50-95, Precision, Recall을 콘솔에 찍고 샘플 이미지를 저�
 3. 각 현수막별로 `{category, confidence, reason}` 출력
 
 ```bash
+# 본인의 현수막 사진을 저장소 루트에 sample.jpg 로 저장한 뒤:
 docker compose exec banner-project python 04_pipeline.py \
-    --image data/binary/images/test/sample.jpg \
-    --visualize --output results/pipeline_output
+    --image sample.jpg --visualize --output results/pipeline_output
+
+# 디렉토리 전체를 일괄 처리:
+docker compose exec banner-project python 04_pipeline.py \
+    --batch my_banners/ --visualize
 ```
+
+- [`04_pipeline.py:101-105`](04_pipeline.py#L101-L105)에서 모델 파일이 없으면 `FileNotFoundError` + 안내 메시지를 띄웁니다.
+- [`04_pipeline.py:826-828`](04_pipeline.py#L826-L828)에서 `cv2.imread`가 실패하면 `ValueError("이미지 로드 실패: ...")` 발생.
+- 최초 실행 시 Qwen3.5-9B(~18GB)가 `.hf_cache/`로 다운로드됩니다. 이후 실행은 캐시에서 로드.
 
 > 단일 이미지용. 배치 평가에는 VRAM 효율적인 `05_demo.py`를 사용하세요.
 
 ---
 
 ## 6. 배치 데모 & VLM 평가 (`05_demo.py`) — 핵심 평가 스크립트
+
+> **⚠ 원천 데이터셋 필수.** [`05_demo.py:88-89`](05_demo.py#L88-L89)의 `load_gt_labels`가 `config.COCO_BANNER_LBL` (`/workspace/illegal_banner/temp_illegal_banner/illegal_banner/label/*.json`) 을 읽습니다. 데이터가 없으면 "No GT samples loaded. Check temp data." 출력 후 `sys.exit`. 데이터셋을 `docker-compose.yml`에서 마운트하세요.
 
 ### CLI 옵션 (`05_demo.py:54-65`)
 
@@ -270,33 +294,35 @@ docker compose exec banner-project python 05_demo.py --n-samples 50
 
 ## 9. 호스트 직접 실행 (Docker 없이)
 
-`config.py:26-31`에서 호스트 경로가 정의돼 있지만, 다음이 전제입니다:
+[`config.py:26-31`](config.py#L26-L31)에서 호스트 경로가 정의돼 있지만, 다음이 전제입니다:
 
 - Python 3.10+, CUDA 12.1 호환 PyTorch 2.x
 - `pip install -r requirements.txt` (bitsandbytes·transformers 등 ~10GB 설치)
-- 환경변수: `HF_HOME=$(pwd)/.hf_cache`
-- `/data/illegal_banner` 접근 가능해야 함
+- `01_prepare_data.py` / `05_demo.py` 를 쓰려면 호스트 `/data/illegal_banner` (기본값, [`config.py:29`](config.py#L29))에 원천 데이터셋이 존재해야 함 — 경로를 바꾸려면 `config.py` 편집
+- 환경변수는 필수 아님 — `config.py`가 BASE_DIR 기준으로 `.hf_cache/`, `results/`를 자동 해석
 
 ```bash
 pip install -r requirements.txt
-HF_HOME=$(pwd)/.hf_cache python 01_prepare_data.py
+python 04_pipeline.py --image sample.jpg --visualize   # 추론만 (데이터셋 불필요)
+python 01_prepare_data.py                              # 데이터셋 필요
 ```
 
-> 프로젝트는 **Docker 실행을 전제로 설계**돼 있으므로, 호스트 직접 실행은 비권장합니다. (CUDA/드라이버 버전 매칭 이슈 발생 가능)
+> 프로젝트는 **Docker 실행을 전제로 설계**돼 있으므로, 호스트 직접 실행은 CUDA/드라이버 버전 매칭 이슈가 발생할 수 있습니다.
 
 ---
 
 ## 10. 트러블슈팅 체크리스트 (코드 기준)
 
-| 증상 | 원인 | 위치 |
+| 증상 | 원인 | 해결 |
 |---|---|---|
-| `YOLO 모델 로드 실패` | ultralytics 버전 낮음 | `02_train_yolo.py:162-167` |
-| `데이터셋 확인 실패` | `dataset.yaml` 없음 → `01_prepare_data.py` 미실행 | `02_train_yolo.py:150-154` |
-| VLM OOM | GPU 24GB 미만 → `VLM_CONFIG["quantization"]="4bit"` | `config.py:164` |
-| VLM 응답이 잘림 | `max_new_tokens` 부족 (thinking 예산) | `config.py:173` |
-| VLM 이미지 입력 gibberish | 이미지가 너무 큼 | `04_pipeline.py:308` (`MAX_VLM_IMAGE_SIDE=896`) |
-| "`Keyword argument chat_template_kwargs ... ignored`" | thinking 모드 전달 방식 문제 — 직접 kwarg로 전달해야 함 | `04_pipeline.py:490` |
-| `VRAM 경합` (YOLO + VLM 동시 상주) | 배치 평가 시 `load_vlm=False`로 YOLO 선행, unload 후 VLM 로드 | `05_demo.py:522-547` |
+| `YOLO 가중치가 없습니다: results/models/yolo26_banner_best.pt` | 가중치 미다운로드 | §1의 curl 명령 실행 |
+| `이미지 파일을 찾을 수 없습니다: sample.jpg` | 파일 경로 오류 | 저장소 루트 기준 상대경로 확인 |
+| `GT 레이블 디렉토리가 없습니다` (05_demo.py) | `illegal_banner` 마운트 누락 | docker-compose.yml 볼륨 주석 해제 또는 04_pipeline.py 사용 |
+| VLM OOM | GPU 24GB 미만 | `VLM_CONFIG["quantization"]="4bit"` ([`config.py:164`](config.py#L164)) |
+| VLM 응답이 잘림 | `max_new_tokens` 부족 (thinking 예산) | [`config.py:173`](config.py#L173) 조정 |
+| VLM 이미지 입력 gibberish | 이미지가 너무 큼 | `MAX_VLM_IMAGE_SIDE=896` ([`04_pipeline.py`](04_pipeline.py)) |
+| `VRAM 경합` (YOLO + VLM 동시 상주) | YOLO + VLM 동시 로드 | `load_vlm=False` 후 `unload_detector→load_classifier` 스왑 사용 |
+| Qwen 최초 다운로드 실패 | 네트워크/rate limit | `HF_TOKEN` 환경변수 설정 (docker-compose.yml 주석 참조) |
 
 ---
 

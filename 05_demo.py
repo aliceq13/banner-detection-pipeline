@@ -515,6 +515,22 @@ def main():
     print("Banner Pipeline Demo & Evaluation")
     print("=" * 60)
 
+    if not Path(args.model).exists():
+        print(f"[ERROR] YOLO 가중치가 없습니다: {args.model}")
+        print("  학습된 가중치 다운로드:")
+        print("    mkdir -p results/models && \\")
+        print("    curl -L -o results/models/yolo26_banner_best.pt \\")
+        print("      https://github.com/aliceq13/banner-detection-pipeline/releases/download/v1.0/binary2-best.pt")
+        sys.exit(1)
+
+    if not config.COCO_BANNER_LBL.exists():
+        print(f"[ERROR] GT 레이블 디렉토리가 없습니다: {config.COCO_BANNER_LBL}")
+        print("  05_demo.py 는 원천 `illegal_banner` 데이터셋(COCO JSON 레이블)이 필요합니다.")
+        print("  docker-compose.yml 의 `/workspace/illegal_banner` 볼륨 주석을 해제하고")
+        print("  실제 데이터셋 경로를 지정한 뒤 `docker compose up -d --force-recreate` 하세요.")
+        print("  데이터셋이 없다면 04_pipeline.py --image <path> 로 단일 이미지 추론을 사용하세요.")
+        sys.exit(1)
+
     from pipeline import BannerPipeline
     # 주의: 여기서는 VLM을 로드하지 않는다. 먼저 YOLO로 모든 감지·보정을
     # 사전 수행한 뒤 YOLO를 VRAM에서 내리고, 그 자리에 VLM을 올려 Qwen3.5-9B
@@ -530,7 +546,8 @@ def main():
 
     gt_samples = load_gt_labels(args.n_samples, args.seed)
     if not gt_samples:
-        print("[ERROR] No GT samples loaded. Check temp data.")
+        print(f"[ERROR] GT 샘플을 불러오지 못했습니다 (label dir: {config.COCO_BANNER_LBL}).")
+        print("  JSON 내부에 categories/annotations 가 비어 있거나 이미지 경로가 어긋났을 수 있습니다.")
         sys.exit(1)
 
     # 1. YOLO 선행 실행 (모든 샘플 보정 이미지 캐싱)

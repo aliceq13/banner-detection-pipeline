@@ -1054,6 +1054,25 @@ def main():
         print("  예시: python 04_pipeline.py --image sample.jpg --visualize")
         sys.exit(1)
 
+    if args.image and not Path(args.image).exists():
+        print(f"[ERROR] 이미지 파일을 찾을 수 없습니다: {args.image}")
+        print("  저장소 루트 기준 상대경로 또는 절대경로를 확인하세요.")
+        sys.exit(1)
+
+    if args.batch and not Path(args.batch).is_dir():
+        print(f"[ERROR] 배치 디렉토리를 찾을 수 없습니다: {args.batch}")
+        sys.exit(1)
+
+    if not Path(args.model).exists():
+        print(f"[ERROR] YOLO 가중치가 없습니다: {args.model}")
+        print("  아래 중 하나를 수행하세요:")
+        print("    1) 학습된 가중치 다운로드:")
+        print("       mkdir -p results/models && \\")
+        print("       curl -L -o results/models/yolo26_banner_best.pt \\")
+        print("         https://github.com/aliceq13/banner-detection-pipeline/releases/download/v1.0/binary2-best.pt")
+        print("    2) 직접 학습:  python 02_train_yolo.py")
+        sys.exit(1)
+
     # 파이프라인 초기화
     pipeline = BannerPipeline(
         yolo_model_path=args.model,
